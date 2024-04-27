@@ -2,11 +2,13 @@ build: node_modules
 	docker run -it --rm -v ./:/mnt node:20 sh -c "cd /mnt && npm run build"
 node_modules:
 	docker run -it --rm -v ./:/mnt node:20 sh -c "cd /mnt && npm install"
-start:
-	docker compose up -d --build
+docker:
+	docker compose build
+start: docker
+	docker compose up -d
 logs: start
 	docker compose logs -f
-dev: stop start
+dev: docker stop start
 	docker compose logs -f &
 	docker compose watch --no-up
 stop:
