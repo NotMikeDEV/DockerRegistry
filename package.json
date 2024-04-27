@@ -1,0 +1,28 @@
+{
+	"name": "@notmike/dockerregistry",
+	"descriptipn": "Typescript library for creating a basic self-hosted docker registry.",
+	"author": "NotMike",
+	"license": "BSD-2-Clause",
+	"version": "0.0.2",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"git repository": "https://github.com/NotMikeDEV/DockerRegistry.git",
+	"dependencies": {
+		"express": "^4.18.2",
+		"sqlite3": "^5.1.6"
+	},
+	"scripts": {
+		"build": "tsup",
+		"start": "node dist server",
+		"test": "echo No Test Defined && exit 1",
+		"clean": "rm -rf node_modules package-lock.json dist"
+	},
+	"devDependencies": {
+		"@types/express": "^4.17.17",
+		"@types/node": "^20.10.2",
+		"@types/sqlite3": "^3.1.11",
+		"tsup": "^8.0.2",
+		"typescript": "^4.3.2"
+	}
+}

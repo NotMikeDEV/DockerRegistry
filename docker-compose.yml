@@ -1,0 +1,28 @@
+version: '3'
+services:
+  server:
+    image: docker.ide.notmike.net/registry
+    build:
+      context: .
+    restart: always
+    ports:
+      - 5001:5000
+    volumes:
+      - data:/var/lib/registry
+    stop_signal: SIGKILL
+    develop:
+      watch:
+        - action: rebuild
+          path: src
+        - action: rebuild
+          path: Dockerfile
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: tsup.config.ts
+  nothing:
+    image: busybox
+    command: sh -c "while true; do sleep 1; done"
+    stop_signal: SIGKILL
+volumes:
+  data:
