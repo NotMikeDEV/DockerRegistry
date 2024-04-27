@@ -5,7 +5,7 @@ import Lock from './Lock'
 import SHA256Thread from './SHA256'
 import path from 'node:path'
 
-type AuthFunction = (Resource:string[], Username:string, Password:string) => boolean
+type AuthFunction = (Resource:string[], Username:string, Password:string) => Promise<boolean>
 
 interface Options {
 	Express:any
