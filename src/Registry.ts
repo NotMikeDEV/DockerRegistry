@@ -10,7 +10,7 @@ type AuthFunction = (Resource:string[], Username:string, Password:string) => boo
 interface Options {
 	Express:any
 	DataDir?:string,
-	Debug?:boolean,
+	Debug?:Function,
 	AuthFunction?:AuthFunction
 }
 export default class DockerRegistry {
@@ -36,10 +36,9 @@ export default class DockerRegistry {
 		setInterval(()=>this.GC(), 120*1000)
 		setTimeout(()=>this.GC(), 5*1000)
 	}
-	Authenticate(Resource:string[], req:any, res:any) {
+	async Authenticate(Resource:string[], req:any, res:any) {
 		if (!this.Options.AuthFunction) {
-			if (this.Options.Debug)
-				console.log('Authenticate', Resource, true)
+			this.Debug('Authenticate', Resource, true)
 			return true
 		}
 		try {
@@ -48,8 +47,8 @@ export default class DockerRegistry {
 				const PassString = atob(Pass64)
 				const Username = PassString.substring(0, PassString.indexOf(':'))
 				const Password = PassString.substring(PassString.indexOf(':') + 1)
-				if (this.Options.AuthFunction(Resource, Username, Password)) {
-					console.log('Authenticate', Username, Resource, true)
+				if (await this.Options.AuthFunction(Resource, Username, Password)) {
+					this.Debug('Authenticate', Username, Resource, true)
 					return true
 				}
 			}
@@ -57,19 +56,19 @@ export default class DockerRegistry {
 		res.set('WWW-Authenticate' ,'Basic realm="Docker Registry"')
 		res.status(401)
 		res.end()
-		console.log('Authenticate', Resource, false)
+		this.Debug('Authenticate', Resource, false)
 		return false
 	}
 
 	async VersionCheck(req:any, res:any, skip:Function) {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
-		if (!this.Authenticate([], req, res)) return
+		if (!await this.Authenticate([], req, res)) return
 		if (req.url == '/') {
-			console.log('VersionCheck', req.url)
+			this.Debug('VersionCheck', req.url)
 			res.send('{}')
 			res.end()
 		} else {
-			console.log('404', req.url)
+			this.Debug('404', req.url)
 			res.status(404).send(JSON.stringify({
 					"errors": [
 						{
@@ -84,7 +83,7 @@ export default class DockerRegistry {
 	async StartUploadBlob(req:any, res:any, skip:Function) {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
-		if (!this.Authenticate(['Upload', Image], req, res)) return
+		if (!await this.Authenticate(['Upload', Image], req, res)) return
 
 		let UploadID = ''
 		while (UploadID.length < 32 || this.Uploads[UploadID])
@@ -96,7 +95,7 @@ export default class DockerRegistry {
 			Filename: this.Options.DataDir + '/upload.' + UploadID + '.tmp',
 			LastActivity: new Date()
 		}
-		console.log('New Upload', Image, UploadID)
+		this.Debug('New Upload', Image, UploadID)
 		res.set('Docker-Upload-UUID', UploadID)
 		res.status(202).set('Location', '/v2/' + Image + '/blobs/uploads/' + UploadID)
 		res.send()
@@ -105,10 +104,10 @@ export default class DockerRegistry {
 	async UploadBlob(req:any, res:any, skip:Function) {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
-		if (!this.Authenticate(['Upload', Image], req, res)) return
+		if (!await this.Authenticate(['Upload', Image], req, res)) return
 
 		let UploadID = req.params[1]
-		console.log('Upload Data', Image, UploadID)
+		this.Debug('Upload Data', Image, UploadID)
 		const Upload = this.Uploads[UploadID]
 		if (!Upload) {
 			res.status(404)
@@ -127,7 +126,7 @@ export default class DockerRegistry {
 			if (Bits.length > 1 && !Length)
 				Length = parseInt(Bits[1])
 			if ((await Upload.File.stat()).size != Offset - 1) {
-				console.log('Invalid Offset', Image, UploadID)
+				this.Debug('Invalid Offset', Image, UploadID)
 				res.status(416).end()
 				return
 			}
@@ -150,40 +149,40 @@ export default class DockerRegistry {
 			}
 		})
 		req.on('end', async()=>{
-			console.log('End Request')
+			this.Debug('End Request')
 			const Done = await WriteLock.Borrow()
 			Upload.LastActivity = new Date()
-			console.log('Got Lock')
+			this.Debug('Got Lock')
 			if (Cache.length) {
 				await Upload.File.appendFile(Cache)
 				Upload.SHA256.Append(Cache)
 			}
 			Cache=Buffer.from([])
 			await Upload.File.sync()
-			console.log('Flushed File')
+			this.Debug('Flushed File')
 			Upload.LastActivity = new Date()
 			res.set('Range', '0-' + (await Upload.File.stat()).size)
 			Upload.File.close()
 			Upload.File = undefined
 			if (req.query?.digest) {
-				console.log('Checking Hash')
+				this.Debug('Checking Hash')
 				const SHA256 = await Upload.SHA256.Sum()
-				console.log(req.query.digest.substring(7), SHA256)
+				this.Debug(req.query.digest.substring(7), SHA256)
 				if (req.query.digest.startsWith('sha256:') && req.query.digest.substring(7) == SHA256){
-					console.log('Hash Valid')
+					this.Debug('Hash Valid')
 					const NewFile = this.FilePath(Upload.Image, req.query?.digest)
-					console.log('Moving temp file', Image, Upload.UploadID, req.query?.digest, path.basename(NewFile), NewFile)
+					this.Debug('Moving temp file', Image, Upload.UploadID, req.query?.digest, path.basename(NewFile), NewFile)
 					await fsP.mkdir(path.dirname(NewFile), {recursive: true})
 					await fsP.rename(Upload.Filename, NewFile)
-					console.log('Upload File Done', Image, Upload.UploadID, req.query?.digest, NewFile)
+					this.Debug('Upload File Done', Image, Upload.UploadID, req.query?.digest, NewFile)
 					res.status(202).end()
 				} else {
-					console.log('Upload Error!', Image, Upload.UploadID, req.query?.digest, Offset)
+					this.Debug('Upload Error!', Image, Upload.UploadID, req.query?.digest, Offset)
 					res.status(500).end()
 				}
 				delete this.Uploads[UploadID]
 			} else {
-				console.log('Upload Chunk Done', Image, Upload.UploadID, GotLength + '/' + Length)
+				this.Debug('Upload Chunk Done', Image, Upload.UploadID, GotLength + '/' + Length)
 				res.status(202).end()
 			}
 		})
@@ -192,7 +191,7 @@ export default class DockerRegistry {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
 		const File = req.params[1]
-		if (!this.Authenticate(['Download', Image, File], req, res)) return
+		if (!await this.Authenticate(['Download', Image, File], req, res)) return
 		const Filename = this.FilePath(Image, File)
 		try {
 			const Stat = await fsP.stat(Filename)
@@ -203,27 +202,27 @@ export default class DockerRegistry {
 			if (req.method == 'GET') {
 				const stream = fs.createReadStream(Filename)
 				stream.pipe(res)
-				console.log('BODY', Filename)
+				this.Debug('BODY', Filename)
 				return
 			} else {
-				console.log('HEAD', Filename)
+				this.Debug('HEAD', Filename)
 				res.end()
 			}
 		}
 		catch (e:any) {
 			res.status(404).end()
-			console.log('404', Filename)
+			this.Debug('404', Filename)
 			return
 		}
 	}
 	async GC() {
-		console.log('Running GC')
+		this.Debug('Running GC')
 		const Files = await fsP.readdir(this.Options.DataDir||'.')
 		for (let x in Files) {
 			if (Files[x].startsWith('upload.')) {
 				const Stat = await fsP.stat((this.Options.DataDir||'.') + '/' + Files[x])
 				if (new Date().getTime() - Stat.mtime.getTime() > 300*60*1000) {
-					console.log(Files[x], Stat)
+					this.Debug(Files[x], Stat)
 					fsP.rm((this.Options.DataDir||'.') + '/' + Files[x])
 				}
 			}
@@ -240,8 +239,8 @@ export default class DockerRegistry {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
 		let Tag = req.params[1]
-		if (!this.Authenticate(['Upload', Image, Tag], req, res)) return
-		console.log('PUT MANIFEST', Image, Tag, req.headers['content-type'])
+		if (!await this.Authenticate(['Upload', Image, Tag], req, res)) return
+		this.Debug('PUT MANIFEST', Image, Tag, req.headers['content-type'])
 		const Filename = this.FilePath(Image, 'manifest', Tag)
 		await fsP.mkdir(path.dirname(Filename), {recursive: true})
 		const TypeFileName = Filename + '.type'
@@ -267,8 +266,8 @@ export default class DockerRegistry {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
 		let Tag = req.params[1]
-		if (!this.Authenticate(['Download', Image, Tag], req, res)) return
-		console.log('GET MANIFEST', Image, Tag)
+		if (!await this.Authenticate(['Download', Image, Tag], req, res)) return
+		this.Debug('GET MANIFEST', Image, Tag)
 		const Filename = this.FilePath(Image, 'manifest', Tag)
 		const TypeFileName = Filename + '.type'
 		const Content = await fsP.readFile(Filename)
