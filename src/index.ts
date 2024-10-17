@@ -12,7 +12,7 @@ if (require.main === module && process.argv.length>2 && process.argv[2] == 'serv
 		console.log(req.ip, req.method, req.url)
 		next()
 	})
-	const Registry = new DockerRegistry({Express: app})
+	const Registry = new DockerRegistry({Express: app, Debug:true})
 	server.listen( port, '::', ()=>{
 		console.log('Daemon', 'Listening on port', port)
 	} )

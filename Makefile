@@ -4,6 +4,8 @@ node_modules:
 	docker run -it --rm -v ./:/mnt node:20 sh -c "cd /mnt && npm install"
 docker:
 	docker compose build
+push: docker
+	docker compose push
 start: docker
 	docker compose up -d
 logs: start

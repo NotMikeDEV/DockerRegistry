@@ -10,13 +10,18 @@ type AuthFunction = (Resource:string[], Username:string, Password:string) => Pro
 interface Options {
 	Express:any
 	DataDir?:string,
-	Debug?:Function,
+	Debug?:boolean,
 	AuthFunction?:AuthFunction
+}
+interface ReapObject {
+	ReapAt:Date,
+	File:string
 }
 export default class DockerRegistry {
 	Options:Options
 	Uploads:any={}
 	Debug:Function=(...args:any[])=>console.log(...args)
+	ReapQueue:ReapObject[]=[]
 	constructor(Options:Options) {
 		this.Options = {
 			DataDir: '/var/lib/registry',
@@ -33,8 +38,9 @@ export default class DockerRegistry {
 		Options.Express.put('/v2/*/manifests/:1', this.PutManifest.bind(this))
 		Options.Express.get('/v2/*/manifests/:1', this.GetManifest.bind(this))
 		Options.Express.use('/v2/', this.VersionCheck.bind(this))	
-		setInterval(()=>this.GC(), 120*1000)
+		setInterval(()=>this.GC(), 300*1000)
 		setTimeout(()=>this.GC(), 5*1000)
+		fsP.mkdir((this.Options.DataDir||'/var/lib/registry') + '/data', {recursive: true})
 	}
 	async Authenticate(Resource:string[], req:any, res:any) {
 		if (!this.Options.AuthFunction) {
@@ -232,6 +238,112 @@ export default class DockerRegistry {
 				this.Uploads[x].File?.close()
 				fsP.rm(this.Uploads[x].Filename)
 				delete this.Uploads[x]
+			}
+		}
+		const Blobs:any[] = []
+		const Collect = async (Path:string)=>{
+			this.Debug('GC', Path)
+			const Files = await fsP.readdir(Path)
+			for (let x in Files) {
+				const Stats = await fsP.stat(Path + '/' + Files[x])
+				if (Stats.isDirectory()) {
+					await Collect(Path + '/' + Files[x])
+				} else if (Path.endsWith('/manifest') && Files[x].endsWith('.dat')) {
+					const FilePath = Path + '/' + Files[x]
+					try {
+						let ImageString = Path.substr((this.Options.DataDir||'').length)
+						while (ImageString.startsWith('/'))
+							ImageString = ImageString.substr(1)
+						ImageString = ImageString.substr(5, ImageString.length - 14)
+						const Content = (await fsP.readFile(FilePath)).toString()
+						const Manifest = JSON.parse(Content)
+						const ConfigBlobPath = this.FilePath(ImageString, Manifest.config.digest)
+						this.Debug(ImageString, Manifest.config.digest, ConfigBlobPath)
+						let Count = 0
+						let GotAllFiles = true
+						for (let L in Manifest.layers) {
+							const Layer = Manifest.layers[L]
+							const BlobPath = this.FilePath(ImageString, Layer.digest)
+//							this.Debug(ImageString, Layer.digest, BlobPath)
+							if (!Files[x].startsWith('sha256')) {
+								Blobs.push(BlobPath)
+							}
+							try {
+								const Stats = await fsP.stat(BlobPath)
+								if (!Stats.isFile()) {
+									GotAllFiles = false
+								}
+							} catch (e) {
+								GotAllFiles = false
+							}
+							Count++
+						}
+						if (GotAllFiles) {
+							Blobs.push(ConfigBlobPath)
+						} else if (Files[x].startsWith('sha256')) {
+							this.ReapQueue.push({
+								ReapAt: new Date(new Date().getTime() + 60*1000),
+								File: FilePath
+							})
+							this.ReapQueue.push({
+								ReapAt: new Date(new Date().getTime() + 60*1000),
+								File: FilePath + ".type"
+							})
+						}
+						this.Debug('Manifest', FilePath, Count, GotAllFiles)
+					} catch (e) {	
+					}
+				}
+			}
+		}
+		const Reap = async (Path:string)=>{
+			this.Debug('Reap', Path)
+			const Files = await fsP.readdir(Path)
+			for (let x in Files) {
+				const Stats = await fsP.stat(Path + '/' + Files[x])
+				if (Files[x] != 'manifest' && Stats.isDirectory()) {
+					await Reap(Path + '/' + Files[x])
+				}
+			}
+			for (let x in Files) {
+				const Stats = await fsP.stat(Path + '/' + Files[x])
+				if (Stats.isFile()) {
+					if (Blobs.indexOf(Path + '/' + Files[x]) > -1) {
+//						this.Debug('Keeping', Path + '/' + Files[x])
+					} else {
+						if (!this.ReapQueue.filter((Obj)=>Obj.File==(Path + '/' + Files[x])).length) {
+							this.Debug('Adding to Reap Queue', Path + '/' + Files[x])
+							this.ReapQueue.push({
+								ReapAt: new Date(new Date().getTime() + 30*60*1000),
+								File: Path + '/' + Files[x]
+							})
+						}
+					}
+				}
+			}
+		}
+
+		await Collect((this.Options.DataDir||'/var/lib/registry') + '/data')
+		await Reap((this.Options.DataDir||'/var/lib/registry') + '/data')
+		for (let x=0; x<this.ReapQueue.length; x++) {
+			const Soul = this.ReapQueue[x]
+			if (Blobs.indexOf(Soul.File) > -1) {
+				for (let y in this.ReapQueue) {
+					if (this.ReapQueue[y] == Soul) {
+						this.Debug('Reincarnated', y, Soul.File)
+					}
+				}
+			} else if (Soul.ReapAt.getTime() - new Date().getTime() < 1000) {
+				this.Debug('Reaping', x, Soul.File)
+				for (let y in this.ReapQueue) {
+					if (this.ReapQueue[y] == Soul) {
+						this.Debug('Deleted', y, Soul.File)
+						this.ReapQueue.splice(parseInt(y), 1)
+						await fsP.rm(Soul.File)
+						x--
+						break
+					}
+				}
 			}
 		}
 	}
