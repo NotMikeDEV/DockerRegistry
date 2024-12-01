@@ -382,18 +382,22 @@ export default class DockerRegistry {
 		res.set('Docker-Distribution-API-Version', 'registry/2.0')
 		const Image = req.params[0]
 		let Tag = req.params[1]
-		if (!await this.Authenticate(['Download', Image, Tag], req, res)) return
-		this.Debug('GET MANIFEST', Image, Tag)
-		const Filename = this.FilePath(Image, 'manifest', Tag)
-		const TypeFileName = Filename + '.type'
-		const Content = await fsP.readFile(Filename)
-		const ContentType = await fsP.readFile(TypeFileName)
-		const SHA256 = new SHA256Thread()
-		SHA256.Append(Content)
-		res.set('Content-Type', ContentType)
-		res.set('Content-Length', Content.length)
-		res.set('Docker-Content-Digest', 'sha256:' + await SHA256.Sum())
-		res.status(200).end(Content)
+		try {
+			if (!await this.Authenticate(['Download', Image, Tag], req, res)) return
+			this.Debug('GET MANIFEST', Image, Tag)
+			const Filename = this.FilePath(Image, 'manifest', Tag)
+			const TypeFileName = Filename + '.type'
+			const Content = await fsP.readFile(Filename)
+			const ContentType = await fsP.readFile(TypeFileName)
+			const SHA256 = new SHA256Thread()
+			SHA256.Append(Content)
+			res.set('Content-Type', ContentType)
+			res.set('Content-Length', Content.length)
+			res.set('Docker-Content-Digest', 'sha256:' + await SHA256.Sum())
+			res.status(200).end(Content)
+		} catch (e) {
+			res.status(404).end("")
+		}
 	}
 	FilePath(...Bits:any) {
 		let Filename = 'data'

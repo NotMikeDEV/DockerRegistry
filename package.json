@@ -3,7 +3,7 @@
 	"descriptipn": "Typescript library for creating a basic self-hosted docker registry.",
 	"author": "NotMike",
 	"license": "BSD-2-Clause",
-	"version": "0.0.7",
+	"version": "0.0.8",
 	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
