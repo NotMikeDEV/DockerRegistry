@@ -48,6 +48,10 @@ export default class DockerRegistry {
 			return true
 		}
 		try {
+			if (await this.Options.AuthFunction(Resource, "", "")) {
+				this.Debug('Authenticate', "Anonymous", Resource, true)
+				return true
+			}
 			if (req.headers.authorization?.toLowerCase().startsWith('basic')) {
 				const Pass64 = req.headers.authorization.substring(6)
 				const PassString = atob(Pass64)
